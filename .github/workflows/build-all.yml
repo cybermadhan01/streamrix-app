@@ -438,6 +438,27 @@ jobs:
         working-directory: src/RUST
         run: cargo tauri ios init --ci
 
+      - name: Disable signing in generated Xcode project
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          for p in glob.glob('src/RUST/src-tauri/gen/apple/**/project.pbxproj', recursive=True):
+              s = open(p).read()
+              s = re.sub(r'CODE_SIGN_STYLE = [^;]+;', 'CODE_SIGN_STYLE = Manual;', s)
+              s = re.sub(r'CODE_SIGNING_ALLOWED = [^;]+;', 'CODE_SIGNING_ALLOWED = NO;', s)
+              s = re.sub(r'CODE_SIGNING_REQUIRED = [^;]+;', 'CODE_SIGNING_REQUIRED = NO;', s)
+              s = re.sub(r'CODE_SIGN_IDENTITY = [^;]+;', 'CODE_SIGN_IDENTITY = "";', s)
+              s = re.sub(r'DEVELOPMENT_TEAM = [^;]+;', 'DEVELOPMENT_TEAM = "";', s)
+              def add(match):
+                  block = match.group(0)
+                  if 'CODE_SIGNING_ALLOWED' not in block:
+                      block = block.replace('buildSettings = {', 'buildSettings = {\n\t\t\tCODE_SIGNING_ALLOWED = NO;\n\t\t\tCODE_SIGNING_REQUIRED = NO;\n\t\t\tCODE_SIGN_IDENTITY = "";\n\t\t\tDEVELOPMENT_TEAM = "";', 1)
+                  return block
+              s = re.sub(r'buildSettings = \{.*?\};', add, s, flags=re.S)
+              open(p, 'w').write(s)
+              print('patched', p)
+          PY
+
       - name: Build iOS (unsigned archive)
         working-directory: src/RUST
         env:
@@ -447,10 +468,18 @@ jobs:
 
       - name: Package unsigned IPA from archive
         run: |
-          ARCHIVE=$(find src/RUST/src-tauri/gen/apple/build -name "*.xcarchive" -type d 2>/dev/null | head -1)
+          mkdir -p dist
+          EXISTING_IPA=$(find src/RUST -name "*.ipa" -type f 2>/dev/null | head -1)
+          if [ -n "$EXISTING_IPA" ]; then
+            cp "$EXISTING_IPA" dist/StreamRix.ipa
+            echo "Copied built IPA: $EXISTING_IPA"
+            ls -lh dist/StreamRix.ipa
+            exit 0
+          fi
+          ARCHIVE=$(find src/RUST -name "*.xcarchive" -type d 2>/dev/null | head -1)
           if [ -z "$ARCHIVE" ]; then
             echo "Error: No .xcarchive found"
-            find src/RUST/src-tauri/gen/apple/build -maxdepth 4 -type d 2>/dev/null || true
+            find src/RUST/src-tauri/gen/apple -maxdepth 5 -type d 2>/dev/null || true
             exit 1
           fi
           echo "Found archive at: $ARCHIVE"
@@ -462,7 +491,6 @@ jobs:
           echo "Found app at: $APP"
           EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
           test -s "$APP/$EXECUTABLE"
-          mkdir -p dist
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP" Payload/
