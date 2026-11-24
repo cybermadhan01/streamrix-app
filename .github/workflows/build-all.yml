@@ -30,6 +30,9 @@ jobs:
   cross-platform:
     name: Android / TV / webOS / macOS / Linux
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout build scripts
         uses: actions/checkout@v4
@@ -48,11 +51,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android 34 platform + build tools
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - name: Prepare Android 34 platform + build tools
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          echo "SDKMANAGER=$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses > /dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Fetch branding from the live site
         run: bash scripts/fetch-assets.sh
@@ -95,6 +99,8 @@ jobs:
   windows:
     name: Windows EXE + installer
     runs-on: windows-latest
+    env:
+      PYTHONIOENCODING: utf-8
     steps:
       - name: Checkout build scripts
         uses: actions/checkout@v4
