@@ -26,6 +26,7 @@ FILES = [
     ("linux",           "streamrix.deb",           "Debian / Ubuntu package",  "Linux (DEB)"),
     ("linuxAppImage",   "StreamRix.AppImage",      "Universal Linux AppImage", "Linux (AppImage)"),
     ("linuxTar",        "StreamRix-Linux.tar.gz",  "Portable Linux tarball",   "Linux (tar.gz)"),
+("ios",             "StreamRix.ipa",           "iOS sideload package",     "iOS (IPA)"),
 ]
 
 
