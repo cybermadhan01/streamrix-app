@@ -84,10 +84,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
+          # Only the NSIS installer — no portable exe
           $nsis = Get-ChildItem "src/RUST/src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($nsis) { Copy-Item $nsis.FullName dist/StreamRix-Setup.exe; Write-Host "Copied NSIS installer" }
-          $exe = Get-ChildItem "src/RUST/src-tauri/target/release/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($exe) { Copy-Item $exe.FullName dist/StreamRix.exe; Write-Host "Copied portable EXE" }
+          else { Write-Error "NSIS installer not found!"; exit 1 }
           dir dist
 
       - name: Upload Windows artifacts
@@ -96,9 +96,7 @@ jobs:
           name: windows
           retention-days: 7
           if-no-files-found: error
-          path: |
-            dist/StreamRix-Setup.exe
-            dist/StreamRix.exe
+          path: dist/StreamRix-Setup.exe
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MACOS — DMG + ZIP
@@ -398,7 +396,6 @@ jobs:
           files: |
             download-links.json
             artifacts/StreamRix-Setup.exe
-            artifacts/StreamRix.exe
             artifacts/StreamRix.dmg
             artifacts/StreamRix-Mac.zip
             artifacts/streamrix.deb
