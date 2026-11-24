@@ -344,15 +344,37 @@ jobs:
         working-directory: src/RUST
         run: cargo tauri android build --apk
 
-      - name: Collect APK
+      - name: Sign APK with release keystore
+        env:
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS || 'streamrix2026' }}
         run: |
           mkdir -p dist
-          APK=$(find src/RUST/src-tauri/gen/android -name "*.apk" -path "*/release/*" 2>/dev/null | head -1)
-          if [ -z "$APK" ]; then
-            APK=$(find src/RUST/src-tauri/gen/android -name "*.apk" 2>/dev/null | head -1)
+          UNSIGNED_APK=$(find src/RUST/src-tauri/gen/android -name "*.apk" | head -1)
+          echo "Found APK to sign: $UNSIGNED_APK"
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "Using build-tools at $BUILD_TOOLS"
+          
+          # Create a keystore if one wasn't restored from secret
+          KEYSTORE="src/RUST/src-tauri/gen/android/app/streamrix.keystore"
+          if [ ! -f "$KEYSTORE" ]; then
+            keytool -genkeypair -v -keystore "$KEYSTORE" \
+              -alias streamrix -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KEYSTORE_PASS" -keypass "$KEYSTORE_PASS" \
+              -dname "CN=StreamRix, OU=StreamRix, O=StreamRix, L=Earth, ST=State, C=US"
           fi
-          echo "Found APK: $APK"
-          [ -n "$APK" ] && cp "$APK" dist/streamrix.apk
+          
+          # Align and sign with apksigner (v1, v2, v3, v4 signature schemes)
+          $BUILD_TOOLS/zipalign -v -p 4 "$UNSIGNED_APK" dist/streamrix-aligned.apk
+          $BUILD_TOOLS/apksigner sign --ks "$KEYSTORE" \
+            --ks-pass "pass:$KEYSTORE_PASS" \
+            --ks-key-alias streamrix \
+            --key-pass "pass:$KEYSTORE_PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out dist/streamrix.apk dist/streamrix-aligned.apk
+            
+          $BUILD_TOOLS/apksigner verify --verbose dist/streamrix.apk
           ls -lh dist/
 
       - name: Upload Android APK
