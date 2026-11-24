@@ -386,11 +386,195 @@ jobs:
           path: dist/streamrix.apk
 
 # ─────────────────────────────────────────────────────────────────────────────
+
+# --- iOS build job placeholder ---
+  build-ios:
+    name: iOS (unsigned IPA)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync web frontend into Tauri
+        working-directory: src/RUST
+        run: node sync_frontend.cjs
+
+      - name: Install Rust stable + iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/RUST/src-tauri/target
+          key: ios-cargo-${{ hashFiles('src/RUST/src-tauri/Cargo.lock') }}
+          restore-keys: ios-cargo-
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Disable iOS code signing (sideload build)
+        run: |
+          printf 'CODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY =\n' > "$RUNNER_TEMP/unsigned.xcconfig"
+          echo "XCODE_XCCONFIG_FILE=$RUNNER_TEMP/unsigned.xcconfig" >> "$GITHUB_ENV"
+
+      - name: Init Tauri iOS project
+        working-directory: src/RUST
+        run: cargo tauri ios init --ci
+
+      - name: Build iOS (unsigned archive)
+        working-directory: src/RUST
+        env:
+          CI: "true"
+        run: |
+          cargo tauri ios build --ci --export-method debugging || echo "Export may fail without signing; packaging from archive instead"
+
+      - name: Package unsigned IPA from archive
+        run: |
+          ARCHIVE=$(find src/RUST/src-tauri/gen/apple/build -name "*.xcarchive" -type d 2>/dev/null | head -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "Error: No .xcarchive found"
+            find src/RUST/src-tauri/gen/apple/build -maxdepth 4 -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found archive at: $ARCHIVE"
+          APP=$(find "$ARCHIVE/Products/Applications" -name "*.app" -type d -maxdepth 1 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then
+            echo "Error: No .app inside archive"
+            exit 1
+          fi
+          echo "Found app at: $APP"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          test -s "$APP/$EXECUTABLE"
+          mkdir -p dist
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          cd Payload && zip -qr ../dist/StreamRix.ipa . && cd ..
+          ls -lh dist/StreamRix.ipa
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/StreamRix.ipa
+
+
+
+# --- iOS build job placeholder ---
+  build-ios:
+    name: iOS (unsigned IPA)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync web frontend into Tauri
+        working-directory: src/RUST
+        run: node sync_frontend.cjs
+
+      - name: Install Rust stable + iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/RUST/src-tauri/target
+          key: ios-cargo-${{ hashFiles('src/RUST/src-tauri/Cargo.lock') }}
+          restore-keys: ios-cargo-
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Disable iOS code signing (sideload build)
+        run: |
+          printf 'CODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY =\n' > "$RUNNER_TEMP/unsigned.xcconfig"
+          echo "XCODE_XCCONFIG_FILE=$RUNNER_TEMP/unsigned.xcconfig" >> "$GITHUB_ENV"
+
+      - name: Init Tauri iOS project
+        working-directory: src/RUST
+        run: cargo tauri ios init --ci
+
+      - name: Build iOS (unsigned archive)
+        working-directory: src/RUST
+        env:
+          CI: "true"
+        run: |
+          cargo tauri ios build --ci --export-method debugging || echo "Export may fail without signing; packaging from archive instead"
+
+      - name: Package unsigned IPA from archive
+        run: |
+          ARCHIVE=$(find src/RUST/src-tauri/gen/apple/build -name "*.xcarchive" -type d 2>/dev/null | head -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "Error: No .xcarchive found"
+            find src/RUST/src-tauri/gen/apple/build -maxdepth 4 -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found archive at: $ARCHIVE"
+          APP=$(find "$ARCHIVE/Products/Applications" -name "*.app" -type d -maxdepth 1 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then
+            echo "Error: No .app inside archive"
+            exit 1
+          fi
+          echo "Found app at: $APP"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          test -s "$APP/$EXECUTABLE"
+          mkdir -p dist
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          cd Payload && zip -qr ../dist/StreamRix.ipa . && cd ..
+          ls -lh dist/StreamRix.ipa
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/StreamRix.ipa
+
+
 # RELEASE — collect all artifacts, publish GitHub Release, update website links
 # ─────────────────────────────────────────────────────────────────────────────
   release:
     name: Publish release + refresh website links
-    needs: [build-windows, build-macos, build-linux, build-android]
+    needs: [build-windows, build-macos, build-linux, build-android, build-ios]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout build repo
@@ -423,3 +607,5 @@ jobs:
             artifacts/streamrix.deb
             artifacts/StreamRix.AppImage
             artifacts/streamrix.apk
+            artifacts/StreamRix.ipa
+            artifacts/StreamRix.ipa
