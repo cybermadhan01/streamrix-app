@@ -142,24 +142,27 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version "^2" --locked
 
-      - name: Build macOS (no code signing, no updater)
+      - name: Build macOS (ad-hoc signing, DMG)
         working-directory: src/RUST
         env:
-          # Disable codesigning entirely on CI
-          CODESIGN_IDENTITY: "-"
+          # Ad-hoc signing ("-") works without an Apple Developer account
           CI: "true"
         run: |
           cargo tauri build \
-            --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":null}}}' \
-            --bundles app
+            --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-"}}}' \
+            --bundles dmg,app
 
       - name: Collect artifacts
         run: |
           mkdir -p dist
-          APP=$(find src/RUST/src-tauri/target/release/bundle/macos -name "*.app" -type d 2>/dev/null | head -1)
-          if [ -n "$APP" ]; then
-            zip -r dist/StreamRix-Mac.zip "$APP" --symlinks
-            echo "Zipped .app → dist/StreamRix-Mac.zip"
+          DMG=$(find src/RUST/src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
+          if [ -n "$DMG" ]; then
+            cp "$DMG" dist/StreamRix.dmg
+            echo "Copied DMG: $(ls -lh dist/StreamRix.dmg)"
+          else
+            # Fallback: zip the .app if DMG failed
+            APP=$(find src/RUST/src-tauri/target/release/bundle/macos -name "*.app" -type d 2>/dev/null | head -1)
+            [ -n "$APP" ] && zip -r dist/StreamRix-Mac.zip "$APP" --symlinks && echo "Fallback: zipped .app"
           fi
           ls -lh dist/
 
@@ -169,7 +172,9 @@ jobs:
           name: macos
           retention-days: 7
           if-no-files-found: error
-          path: dist/StreamRix-Mac.zip
+          path: |
+            dist/StreamRix.dmg
+            dist/StreamRix-Mac.zip
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LINUX — DEB + AppImage
@@ -389,10 +394,12 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG || format('v{0}', github.run_number) }}
           name: StreamRix ${{ env.RELEASE_TAG || format('build {0}', github.run_number) }}
           generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
             download-links.json
             artifacts/StreamRix-Setup.exe
             artifacts/StreamRix.exe
+            artifacts/StreamRix.dmg
             artifacts/StreamRix-Mac.zip
             artifacts/streamrix.deb
             artifacts/StreamRix.AppImage
