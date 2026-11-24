@@ -149,6 +149,7 @@ jobs:
           name: StreamRix ${{ env.RELEASE_TAG || format('build {0}', github.run_number) }}
           generate_release_notes: true
           files: |
+            download-links.json
             artifacts/StreamRix-Setup.exe
             artifacts/StreamRix.exe
             artifacts/streamrix.apk
@@ -159,8 +160,7 @@ jobs:
             artifacts/StreamRix.AppImage
             artifacts/StreamRix-Linux.tar.gz
 
-      - name: Commit refreshed links to main (GitHub Actions bot only)
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: 'ci: refresh download links'
-          file_pattern: download-links.json
+      # main is intentionally read-only for everyone, including this workflow.
+      # The committed download-links.json never needs changing: it points at
+      # GitHub's stable releases/latest/download/<file> URLs, so every new
+      # release is live on the website immediately.

@@ -1,51 +1,63 @@
 # Lock this repository to CI-only writes
 
-Run these once (you are already authenticated as `cybermadhan01`):
+This is a **personal** repository, so classic branch protection cannot restrict
+pushers. A repository **ruleset** is used instead. It is already applied with:
 
-```powershell
-gh api -X PUT repos/cybermadhan01/streamrix-app/branches/main/protection `
-  -H "Accept: application/vnd.github+json" `
-  -f required_status_checks=null `
-  -f 'enforce_admins=true' `
-  -f required_pull_request_reviews=null `
-  -f 'restrictions[users][]=' `
-  -f 'restrictions[teams][]=' `
-  -f 'restrictions[apps][]=github-actions' `
-  -f 'allow_force_pushes=false' `
-  -f 'allow_deletions=false' `
-  -f 'block_creations=true' `
-  -f 'required_conversation_resolution=false'
+```
+POST /repos/cybermadhan01/streamrix-app/rulesets
+{
+  "name": "CI-only writes",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
+  "rules": [
+    { "type": "creation" },
+    { "type": "update", "parameters": { "update_allows_fetch_and_merge": false } },
+    { "type": "deletion" },
+    { "type": "non_fast_forward" }
+  ],
+  "bypass_actors": []
+}
 ```
 
-What this does:
+Effect on `main`:
 
-- `restrictions[apps][]=github-actions` — **only the GitHub Actions bot can
-  push to `main`**. No developer account can push code.
-- `enforce_admins=true` — even the repository owner is blocked.
-- `allow_force_pushes=false`, `allow_deletions=false`, `block_creations=true`
-  — no history rewrites, no branch deletes.
-- `required_pull_request_reviews=null` — the CI bot commits the refreshed
-  `download-links.json` directly, so a PR gate would block it.
+- `update` — **nobody can push a commit**, including the repository owner.
+- `creation` — no new branches from pushes.
+- `deletion` — branch cannot be deleted.
+- `non_fast_forward` — no history rewrites.
+- `bypass_actors: []` — there is no back door for a developer account.
+
+The CI workflow does **not** push to `main`. It only creates GitHub Releases,
+which is separate from repository refs. This is why the lock can be total.
+
+## Why no CI bypass is needed
+
+`download-links.json` contains only `releases/latest/download/<filename>` URLs.
+Those URLs always resolve to the newest release, so the manifest is static and
+never has to be rewritten after a build.
 
 ## Verify
 
 ```powershell
-gh api repos/cybermadhan01/streamrix-app/branches/main/protection --jq '.restrictions'
+gh api repos/cybermadhan01/streamrix-app/rulesets --jq '.[] | {name, enforcement, bypass_actors, rules: [.rules[].type]}'
 ```
-
-Expected: `apps: ["github-actions"]`, empty `users` and `teams`.
 
 ## Temporarily editing the workflow
 
-Because humans cannot push to `main`, edit workflow files on a side branch,
-open a PR, then temporarily remove protection, merge, and re-apply the command
-above. This is intentional: it makes an unreviewed push to the release repo
-impossible.
+Because nobody can push to `main`, to change the CI files:
 
-## Also remove other write paths
+1. In GitHub UI, open **Settings → Rules → Rulesets → CI-only writes** and
+   disable it.
+2. Push your change / merge your PR.
+3. Re-enable the ruleset.
+
+This temporary, visible step is intentional — an unreviewed push to the
+release repository is impossible while the ruleset is active.
+
+## Also verify no other write paths
 
 ```powershell
-# No outside collaborators (owner only)
 gh api repos/cybermadhan01/streamrix-app/collaborators --jq '.[].login'
 ```
 

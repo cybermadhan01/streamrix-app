@@ -38,8 +38,9 @@ them. Branding files are downloaded from the live site at build time.
 
 Every successful build creates a release at
 `https://github.com/cybermadhan01/streamrix-app/releases/latest` with stable
-filenames, and refreshes `download-links.json` which streamrix.site reads on
-every page load.
+filenames. `download-links.json` is committed once and never needs editing: it
+points at GitHub's `releases/latest/download/...` URLs, so each new release
+becomes the live download on streamrix.site immediately.
 
 ## Website integration
 
