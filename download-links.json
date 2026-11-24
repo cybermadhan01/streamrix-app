@@ -1,0 +1,18 @@
+{
+  "generatedAt": "2026-11-24T00:00:00Z",
+  "version": "initial",
+  "releaseUrl": "https://github.com/cybermadhan01/streamrix-app/releases/latest",
+  "baseUrl": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/",
+  "files": {
+    "windows": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/StreamRix-Setup.exe", "file": "StreamRix-Setup.exe", "label": "Windows installer", "title": "Windows" },
+    "windowsPortable": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/StreamRix.exe", "file": "StreamRix.exe", "label": "Windows portable app", "title": "Windows portable" },
+    "android": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/streamrix.apk", "file": "streamrix.apk", "label": "Android / phone / tablet", "title": "Android" },
+    "tv": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/streamrix.apk", "file": "streamrix.apk", "label": "Android TV / Fire TV", "title": "Smart TV" },
+    "webos": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/streamrix.ipk", "file": "streamrix.ipk", "label": "LG webOS TV", "title": "webOS TV" },
+    "mac": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/StreamRix.dmg", "file": "StreamRix.dmg", "label": "macOS disk image", "title": "macOS" },
+    "macZip": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/StreamRix-Mac.zip", "file": "StreamRix-Mac.zip", "label": "macOS app bundle", "title": "macOS (ZIP)" },
+    "linux": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/streamrix.deb", "file": "streamrix.deb", "label": "Debian / Ubuntu package", "title": "Linux (DEB)" },
+    "linuxAppImage": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/StreamRix.AppImage", "file": "StreamRix.AppImage", "label": "Universal Linux AppImage", "title": "Linux (AppImage)" },
+    "linuxTar": { "url": "https://github.com/cybermadhan01/streamrix-app/releases/latest/download/StreamRix-Linux.tar.gz", "file": "StreamRix-Linux.tar.gz", "label": "Portable Linux tarball", "title": "Linux (tar.gz)" }
+  }
+}

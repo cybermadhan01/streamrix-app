@@ -1,0 +1,166 @@
+name: StreamRix — Build All Platforms
+
+# BUILD-ONLY REPOSITORY.
+# No application source code lives here. The build scripts in this repo produce
+# thin native wrappers around the already-published web app at streamrix.site.
+# Only this workflow is allowed to write to `main` (see REPO-PROTECTION.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, e.g. v1.0.2 (blank = auto v<run number>)'
+        required: false
+        default: ''
+  repository_dispatch:
+    types: [build]
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: streamrix-all-platform-build
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.version || github.event.client_payload.version || '' }}
+
+jobs:
+  cross-platform:
+    name: Android / TV / webOS / macOS / Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build scripts
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python build libraries
+        run: python -m pip install --upgrade pip pillow pycdlib
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 34 platform + build tools
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Fetch branding from the live site
+        run: bash scripts/fetch-assets.sh
+
+      - name: Restore stable APK signing key (if configured)
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: bash scripts/restore-keystore.sh
+
+      - name: Build Android + Android TV APK
+        run: python scripts/build_android_apk.py
+
+      - name: Build LG webOS IPK
+        run: python scripts/build_webos_ipk.py
+
+      - name: Build macOS DMG + ZIP
+        run: python scripts/build_mac_dmg.py
+
+      - name: Build Linux DEB / AppImage / Tarball
+        run: python scripts/build_linux_pkg.py
+
+      - name: Build portable desktop bundles
+        run: python scripts/build_desktop_bundles.py
+
+      - name: Upload cross-platform artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cross-platform
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            dist/streamrix.apk
+            dist/streamrix.ipk
+            dist/StreamRix.dmg
+            dist/StreamRix-Mac.zip
+            dist/streamrix.deb
+            dist/StreamRix.AppImage
+            dist/StreamRix-Linux.tar.gz
+
+  windows:
+    name: Windows EXE + installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout build scripts
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch branding from the live site
+        shell: pwsh
+        run: ./scripts/fetch-assets.ps1
+
+      - name: Build portable EXE + NSIS-style setup
+        shell: pwsh
+        run: python ./scripts/build_windows_setup.py
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            dist/StreamRix.exe
+            dist/StreamRix-Setup.exe
+
+  release:
+    name: Publish release + refresh website links
+    needs: [cross-platform, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build scripts
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Verify every platform artifact exists
+        run: bash scripts/verify-artifacts.sh
+
+      - name: Generate download-links.json
+        run: python scripts/generate_download_links.py
+
+      - name: Publish GitHub Release with stable download filenames
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG || format('v{0}', github.run_number) }}
+          name: StreamRix ${{ env.RELEASE_TAG || format('build {0}', github.run_number) }}
+          generate_release_notes: true
+          files: |
+            artifacts/StreamRix-Setup.exe
+            artifacts/StreamRix.exe
+            artifacts/streamrix.apk
+            artifacts/streamrix.ipk
+            artifacts/StreamRix.dmg
+            artifacts/StreamRix-Mac.zip
+            artifacts/streamrix.deb
+            artifacts/StreamRix.AppImage
+            artifacts/StreamRix-Linux.tar.gz
+
+      - name: Commit refreshed links to main (GitHub Actions bot only)
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'ci: refresh download links'
+          file_pattern: download-links.json
