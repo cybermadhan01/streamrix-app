@@ -145,18 +145,21 @@ jobs:
       - name: Build macOS (no code signing, no updater)
         working-directory: src/RUST
         env:
-          APPLE_SIGNING_IDENTITY: ""
-        run: cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          # Disable codesigning entirely on CI
+          CODESIGN_IDENTITY: "-"
+          CI: "true"
+        run: |
+          cargo tauri build \
+            --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":null}}}' \
+            --bundles app
 
       - name: Collect artifacts
         run: |
           mkdir -p dist
-          DMG=$(find src/RUST/src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
-          [ -n "$DMG" ] && cp "$DMG" dist/StreamRix.dmg && echo "Copied DMG"
           APP=$(find src/RUST/src-tauri/target/release/bundle/macos -name "*.app" -type d 2>/dev/null | head -1)
           if [ -n "$APP" ]; then
-            cd dist && zip -r StreamRix-Mac.zip "$(basename "$OLDPWD/$APP")" --symlinks && cd ..
-            echo "Zipped .app"
+            zip -r dist/StreamRix-Mac.zip "$APP" --symlinks
+            echo "Zipped .app → dist/StreamRix-Mac.zip"
           fi
           ls -lh dist/
 
@@ -166,9 +169,7 @@ jobs:
           name: macos
           retention-days: 7
           if-no-files-found: error
-          path: |
-            dist/StreamRix.dmg
-            dist/StreamRix-Mac.zip
+          path: dist/StreamRix-Mac.zip
 
 # ─────────────────────────────────────────────────────────────────────────────
 # LINUX — DEB + AppImage
@@ -360,43 +361,11 @@ jobs:
           path: dist/streamrix.apk
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LG webOS IPK (Python-built hosted-shell — no Tauri available for webOS)
-# ─────────────────────────────────────────────────────────────────────────────
-  build-webos:
-    name: LG webOS IPK
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout build repo
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python deps
-        run: pip install pillow
-
-      - name: Fetch branding from live site
-        run: bash scripts/fetch-assets.sh
-
-      - name: Build webOS IPK
-        run: python scripts/build_webos_ipk.py
-
-      - name: Upload webOS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: webos
-          retention-days: 7
-          if-no-files-found: error
-          path: dist/streamrix.ipk
-
-# ─────────────────────────────────────────────────────────────────────────────
 # RELEASE — collect all artifacts, publish GitHub Release, update website links
 # ─────────────────────────────────────────────────────────────────────────────
   release:
     name: Publish release + refresh website links
-    needs: [build-windows, build-macos, build-linux, build-android, build-webos]
+    needs: [build-windows, build-macos, build-linux, build-android]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout build repo
@@ -424,9 +393,7 @@ jobs:
             download-links.json
             artifacts/StreamRix-Setup.exe
             artifacts/StreamRix.exe
-            artifacts/StreamRix.dmg
             artifacts/StreamRix-Mac.zip
             artifacts/streamrix.deb
             artifacts/StreamRix.AppImage
             artifacts/streamrix.apk
-            artifacts/streamrix.ipk
