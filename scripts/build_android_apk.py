@@ -545,16 +545,11 @@ def build_apk():
         "Compile Java sources with javac"
     )
 
-    # 4. D8 DEX conversion
-    class_files = []
-    for root, _, files in os.walk(classes_dir):
-        for f in files:
-            if f.endswith(".class"):
-                class_files.append(os.path.join(root, f))
-    classes_str = " ".join([f'"{c}"' for c in class_files])
+    # 4. D8 DEX conversion. Passing the directory avoids duplicate class inputs
+    # (d8 rejects a type listed twice when an explicit file list is built).
     dex_dir = os.path.join(BUILD_DIR, "bin")
     run_cmd(
-        f'"{D8}" --output "{dex_dir}" {classes_str}',
+        f'"{D8}" --lib "{ANDROID_JAR}" --output "{dex_dir}" "{classes_dir}"',
         "Convert classes to DEX with d8"
     )
 
