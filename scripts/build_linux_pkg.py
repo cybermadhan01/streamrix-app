@@ -373,7 +373,14 @@ StartupWMClass=streamrix
     with open(os.path.join(appdir, "streamrix.desktop"), "w", encoding="utf-8", newline="\n") as f:
         f.write(desktop_entry)
 
-    shutil.copy2(os.path.join(ASSETS_DIR, "icons", "icon-512.png"), os.path.join(appdir, "streamrix.png"))
+    icon_src = os.path.join(ASSETS_DIR, "icons", "icon-512.png")
+    icon_dst = os.path.join(appdir, "streamrix.png")
+    if os.path.exists(icon_src):
+        shutil.copy2(icon_src, icon_dst)
+    else:
+        from PIL import Image
+        img = Image.new("RGBA", (512, 512), color=(0, 173, 239, 255))
+        img.save(icon_dst)
 
     appdir_assets = os.path.join(appdir, "assets")
     os.makedirs(appdir_assets, exist_ok=True)

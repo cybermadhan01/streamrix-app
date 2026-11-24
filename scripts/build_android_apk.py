@@ -545,11 +545,21 @@ def build_apk():
         "Compile Java sources with javac"
     )
 
-    # 4. D8 DEX conversion. Passing the directory avoids duplicate class inputs
-    # (d8 rejects a type listed twice when an explicit file list is built).
+    # 4. D8 DEX conversion. Pack classes into classes.jar so d8 gets a valid jar input
+    # (d8 rejects directories with "Unsupported source file type").
     dex_dir = os.path.join(BUILD_DIR, "bin")
+    os.makedirs(dex_dir, exist_ok=True)
+    classes_jar = os.path.join(BUILD_DIR, "obj", "classes.jar")
+    with zipfile.ZipFile(classes_jar, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _, files in os.walk(classes_dir):
+            for file in files:
+                if file.endswith(".class"):
+                    abs_p = os.path.join(root, file)
+                    rel_p = os.path.relpath(abs_p, classes_dir).replace("\\", "/")
+                    zf.write(abs_p, rel_p)
+
     run_cmd(
-        f'"{D8}" --lib "{ANDROID_JAR}" --output "{dex_dir}" "{classes_dir}"',
+        f'"{D8}" --lib "{ANDROID_JAR}" --output "{dex_dir}" "{classes_jar}"',
         "Convert classes to DEX with d8"
     )
 
