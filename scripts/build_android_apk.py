@@ -89,6 +89,11 @@ def populate_resources():
     tv_1080 = os.path.join(ASSETS_DIR, "branding", "tv_banner_1080p.png")
     if os.path.exists(tv_320):
         shutil.copy2(tv_320, os.path.join(BUILD_DIR, "res", "drawable", "tv_banner.png"))
+    else:
+        from PIL import ImageDraw
+        banner = Image.new("RGB", (320, 180), (7, 9, 14))
+        ImageDraw.Draw(banner).text((24, 82), "StreamRix", fill=(255, 255, 255))
+        banner.save(os.path.join(BUILD_DIR, "res", "drawable", "tv_banner.png"), "PNG")
     if os.path.exists(tv_1080):
         shutil.copy2(tv_1080, os.path.join(BUILD_DIR, "res", "drawable-nodpi", "tv_banner.png"))
 
