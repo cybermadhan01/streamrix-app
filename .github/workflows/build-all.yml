@@ -1,0 +1,575 @@
+name: StreamRix — Build All Platforms (Tauri)
+
+# BUILD-ONLY REPOSITORY.
+# Source lives in private repo cybermadhan01/streamrix-src.
+# This workflow compiles the real Rust/Tauri native app for every target platform
+# and publishes all binaries as a GitHub Release.
+# NO source code is stored here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release tag, e.g. v1.0.2 (blank = auto v<run number>)'
+        required: false
+        default: ''
+  repository_dispatch:
+    types: [build]
+  workflow_call:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: streamrix-all-platform-build
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.version || github.event.client_payload.version || '' }}
+  CARGO_TERM_COLOR: always
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WINDOWS — NSIS installer + portable EXE
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  build-windows:
+    name: Windows (EXE + NSIS installer)
+    runs-on: windows-latest
+    env:
+      CARGO_HOME: ${{ github.workspace }}/.cargo
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync web frontend into Tauri
+        working-directory: src/RUST
+        run: node sync_frontend.cjs
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.CARGO_HOME }}/registry
+            ${{ env.CARGO_HOME }}/git
+            src/RUST/src-tauri/target
+          key: windows-cargo-${{ hashFiles('src/RUST/src-tauri/Cargo.lock') }}
+          restore-keys: windows-cargo-
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build Windows
+        working-directory: src/RUST
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $env:PATH = "${{ env.CARGO_HOME }}\bin;$env:PATH"
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            cargo tauri build
+          } else {
+            cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          }
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $nsis = Get-ChildItem "src/RUST/src-tauri/target/release/bundle/nsis/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($nsis) { Copy-Item $nsis.FullName dist/StreamRix-Setup.exe; Write-Host "Copied NSIS installer" }
+          else { Write-Error "NSIS installer not found!"; exit 1 }
+          Get-ChildItem "src/RUST/src-tauri/target/release/bundle/nsis/*.zip*" -ErrorAction SilentlyContinue | ForEach-Object { Copy-Item $_.FullName dist/ }
+          dir dist
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/StreamRix-Setup.exe
+            dist/*.nsis.zip*
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MACOS — DMG + ZIP
+# ─────────────────────────────────────────────────────────────────────────────
+  build-macos:
+    name: macOS (DMG + ZIP)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync web frontend into Tauri
+        working-directory: src/RUST
+        run: node sync_frontend.cjs
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/RUST/src-tauri/target
+          key: macos-cargo-${{ hashFiles('src/RUST/src-tauri/Cargo.lock') }}
+          restore-keys: macos-cargo-
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build macOS (ad-hoc signing, DMG)
+        working-directory: src/RUST
+        env:
+          # Ad-hoc signing ("-") works without an Apple Developer account
+          CI: "true"
+        run: |
+          cargo tauri build \
+            --config '{"bundle":{"createUpdaterArtifacts":false,"macOS":{"signingIdentity":"-"}}}' \
+            --bundles dmg,app
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          DMG=$(find src/RUST/src-tauri/target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
+          if [ -n "$DMG" ]; then
+            cp "$DMG" dist/StreamRix.dmg
+            echo "Copied DMG: $(ls -lh dist/StreamRix.dmg)"
+          else
+            # Fallback: zip the .app if DMG failed
+            APP=$(find src/RUST/src-tauri/target/release/bundle/macos -name "*.app" -type d 2>/dev/null | head -1)
+            [ -n "$APP" ] && zip -r dist/StreamRix-Mac.zip "$APP" --symlinks && echo "Fallback: zipped .app"
+          fi
+          ls -lh dist/
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/StreamRix.dmg
+            dist/StreamRix-Mac.zip
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LINUX — DEB + AppImage
+# ─────────────────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Linux (DEB + AppImage)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libglib2.0-dev \
+            libpango1.0-dev \
+            libatk1.0-dev \
+            libgdk-pixbuf-2.0-dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync web frontend into Tauri
+        working-directory: src/RUST
+        run: node sync_frontend.cjs
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/RUST/src-tauri/target
+          key: linux-cargo-${{ hashFiles('src/RUST/src-tauri/Cargo.lock') }}
+          restore-keys: linux-cargo-
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Build Linux
+        working-directory: src/RUST
+        run: cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          DEB=$(find src/RUST/src-tauri/target/release/bundle/deb -name "*.deb" 2>/dev/null | head -1)
+          [ -n "$DEB" ] && cp "$DEB" dist/streamrix.deb && echo "Copied DEB"
+          APPIMG=$(find src/RUST/src-tauri/target/release/bundle/appimage -name "*.AppImage" 2>/dev/null | head -1)
+          [ -n "$APPIMG" ] && cp "$APPIMG" dist/StreamRix.AppImage && echo "Copied AppImage"
+          ls -lh dist/
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/streamrix.deb
+            dist/StreamRix.AppImage
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ANDROID — real Tauri APK
+# ─────────────────────────────────────────────────────────────────────────────
+  build-android:
+    name: Android APK (Tauri)
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync web frontend into Tauri
+        working-directory: src/RUST
+        run: node sync_frontend.cjs
+
+      - name: Install Rust stable + Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/RUST/src-tauri/target
+          key: android-cargo-${{ hashFiles('src/RUST/src-tauri/Cargo.lock') }}
+          restore-keys: android-cargo-
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Set up Android NDK
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.0.12077973" 2>&1 | tail -5
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+
+      - name: Init Tauri Android project
+        working-directory: src/RUST
+        run: cargo tauri android init
+
+      - name: Restore APK signing keystore (if configured)
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_B64:-}" ] && [ -n "${KEYSTORE_PASS:-}" ]; then
+            mkdir -p src/RUST/src-tauri/gen/android/app
+            printf '%s' "$ANDROID_KEYSTORE_B64" | base64 --decode \
+              > src/RUST/src-tauri/gen/android/app/streamrix.keystore
+            echo "KEY_STORE_PATH=streamrix.keystore" >> $GITHUB_ENV
+            echo "KEY_ALIAS=streamrix"              >> $GITHUB_ENV
+            echo "KEY_PASSWORD=$KEYSTORE_PASS"      >> $GITHUB_ENV
+            echo "STORE_PASSWORD=$KEYSTORE_PASS"    >> $GITHUB_ENV
+          fi
+
+      - name: Build Android APK (release)
+        working-directory: src/RUST
+        run: cargo tauri android build --apk
+
+      - name: Sign APK with release keystore
+        env:
+          KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
+        run: |
+          mkdir -p dist
+          UNSIGNED_APK=$(find src/RUST/src-tauri/gen/android -name "*.apk" | head -1)
+          echo "Found APK to sign: $UNSIGNED_APK"
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          echo "Using build-tools at $BUILD_TOOLS"
+          KEYSTORE="src/RUST/src-tauri/gen/android/app/streamrix.keystore"
+          if [ ! -f "$KEYSTORE" ]; then
+            KEYSTORE_PASS="${KEYSTORE_PASS:-$(openssl rand -hex 16)}"
+            keytool -genkeypair -v -keystore "$KEYSTORE" \
+              -alias streamrix -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$KEYSTORE_PASS" -keypass "$KEYSTORE_PASS" \
+              -dname "CN=StreamRix, OU=StreamRix, O=StreamRix, L=Earth, ST=State, C=US"
+          fi
+          $BUILD_TOOLS/zipalign -v -p 4 "$UNSIGNED_APK" dist/streamrix-aligned.apk
+          $BUILD_TOOLS/apksigner sign --ks "$KEYSTORE" \
+            --ks-pass "pass:$KEYSTORE_PASS" \
+            --ks-key-alias streamrix \
+            --key-pass "pass:$KEYSTORE_PASS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out dist/streamrix.apk dist/streamrix-aligned.apk
+          $BUILD_TOOLS/apksigner verify --verbose dist/streamrix.apk
+          ls -lh dist/
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/streamrix.apk
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+# --- iOS build job placeholder ---
+  build-ios:
+    name: iOS (unsigned IPA)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Sync web frontend into Tauri
+        working-directory: src/RUST
+        run: node sync_frontend.cjs
+
+      - name: Install Rust stable + iOS target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/RUST/src-tauri/target
+          key: ios-cargo-${{ hashFiles('src/RUST/src-tauri/Cargo.lock') }}
+          restore-keys: ios-cargo-
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Disable iOS code signing (sideload build)
+        run: |
+          printf 'CODE_SIGNING_ALLOWED = NO\nCODE_SIGNING_REQUIRED = NO\nCODE_SIGN_IDENTITY =\n' > "$RUNNER_TEMP/unsigned.xcconfig"
+          echo "XCODE_XCCONFIG_FILE=$RUNNER_TEMP/unsigned.xcconfig" >> "$GITHUB_ENV"
+
+      - name: Init Tauri iOS project
+        working-directory: src/RUST
+        run: cargo tauri ios init --ci
+
+      - name: Disable signing in generated Xcode project
+        run: |
+          python3 - <<'PY'
+          import glob, re
+          for p in glob.glob('src/RUST/src-tauri/gen/apple/**/project.pbxproj', recursive=True):
+              s = open(p).read()
+              s = re.sub(r'CODE_SIGN_STYLE = [^;]+;', 'CODE_SIGN_STYLE = Manual;', s)
+              s = re.sub(r'CODE_SIGNING_ALLOWED = [^;]+;', 'CODE_SIGNING_ALLOWED = NO;', s)
+              s = re.sub(r'CODE_SIGNING_REQUIRED = [^;]+;', 'CODE_SIGNING_REQUIRED = NO;', s)
+              s = re.sub(r'CODE_SIGN_IDENTITY = [^;]+;', 'CODE_SIGN_IDENTITY = "";', s)
+              s = re.sub(r'DEVELOPMENT_TEAM = [^;]+;', 'DEVELOPMENT_TEAM = "";', s)
+              def add(match):
+                  block = match.group(0)
+                  if 'CODE_SIGNING_ALLOWED' not in block:
+                      block = block.replace('buildSettings = {', 'buildSettings = {\n\t\t\tCODE_SIGNING_ALLOWED = NO;\n\t\t\tCODE_SIGNING_REQUIRED = NO;\n\t\t\tCODE_SIGN_IDENTITY = "";\n\t\t\tDEVELOPMENT_TEAM = "";', 1)
+                  return block
+              s = re.sub(r'buildSettings = \{.*?\};', add, s, flags=re.S)
+              open(p, 'w').write(s)
+              print('patched', p)
+          PY
+
+      - name: Build iOS (unsigned archive)
+        working-directory: src/RUST
+        env:
+          CI: "true"
+        run: |
+          cargo tauri ios build --ci --export-method debugging || echo "Export may fail without signing; packaging from archive instead"
+
+      - name: Package unsigned IPA from archive
+        run: |
+          mkdir -p dist
+          EXISTING_IPA=$(find src/RUST -name "*.ipa" -type f 2>/dev/null | head -1)
+          if [ -n "$EXISTING_IPA" ]; then
+            cp "$EXISTING_IPA" dist/StreamRix.ipa
+            echo "Copied built IPA: $EXISTING_IPA"
+            ls -lh dist/StreamRix.ipa
+            exit 0
+          fi
+          ARCHIVE=$(find src/RUST -name "*.xcarchive" -type d 2>/dev/null | head -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "Error: No .xcarchive found"
+            find src/RUST/src-tauri/gen/apple -maxdepth 5 -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Found archive at: $ARCHIVE"
+          APP=$(find "$ARCHIVE/Products/Applications" -name "*.app" -type d -maxdepth 1 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then
+            echo "Error: No .app inside archive"
+            exit 1
+          fi
+          echo "Found app at: $APP"
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")
+          test -s "$APP/$EXECUTABLE"
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          cd Payload && zip -qr ../dist/StreamRix.ipa . && cd ..
+          ls -lh dist/StreamRix.ipa
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/StreamRix.ipa
+
+
+
+# RELEASE — collect all artifacts, publish GitHub Release, update website links
+# ─────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Publish release + refresh website links
+    needs: [build-windows, build-macos, build-linux, build-android, build-ios]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo (for update.json manifest)
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List collected artifacts
+        run: ls -lh artifacts/
+
+      - name: Generate download-links.json & update.json
+        run: |
+          python scripts/generate_download_links.py
+          mkdir -p src/dist src/RUST/src-tauri/target/release/bundle/nsis
+          cp -f artifacts/streamrix.apk src/dist/ 2>/dev/null || true
+          cp -f artifacts/*.nsis.zip* src/RUST/src-tauri/target/release/bundle/nsis/ 2>/dev/null || true
+          node src/tools/build-update-manifest.mjs --rollout 100
+          cp -f src/dist/update.json artifacts/update.json
+          mkdir -p artifacts/bundle
+          cp -f src/dist/bundle/*.json artifacts/bundle/ 2>/dev/null || true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG || format('v{0}', github.run_number) }}
+          name: StreamRix ${{ env.RELEASE_TAG || format('build {0}', github.run_number) }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            download-links.json
+            artifacts/update.json
+            artifacts/bundle/*.json
+            artifacts/*.nsis.zip*
+            artifacts/StreamRix-Setup.exe
+            artifacts/StreamRix.dmg
+            artifacts/StreamRix-Mac.zip
+            artifacts/streamrix.deb
+            artifacts/StreamRix.AppImage
+            artifacts/streamrix.apk
+            artifacts/StreamRix.ipa
