@@ -510,13 +510,62 @@ jobs:
           if-no-files-found: error
           path: dist/StreamRix.ipa
 
+# ─────────────────────────────────────────────────────────────────────────────
+# LG WEBOS TV — real .ipk via @webosose/ares-cli (ares-package)
+# ─────────────────────────────────────────────────────────────────────────────
+  build-webos:
+    name: LG webOS TV (.ipk)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private source repo
+        uses: actions/checkout@v4
+        with:
+          repository: cybermadhan01/streamrix-src
+          token: ${{ secrets.STREAMRIX_SRC_TOKEN }}
+          path: src
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python + webOS CLI dependencies
+        run: |
+          pip install pillow
+          npm install -g @webosose/ares-cli
+
+      - name: Build LG webOS .ipk
+        working-directory: src
+        run: python tools/build_webos_ipk.py --ares
+
+      - name: Collect webOS artifact
+        run: |
+          mkdir -p dist
+          cp src/dist/streamrix.ipk dist/streamrix.ipk
+          ls -lh dist/streamrix.ipk
+
+      - name: Upload webOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webos
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/streamrix.ipk
 
 
 # RELEASE — collect all artifacts, publish GitHub Release, update website links
 # ─────────────────────────────────────────────────────────────────────────────
   release:
     name: Publish release + refresh website links
-    needs: [build-windows, build-macos, build-linux, build-android, build-ios]
+    needs: [build-windows, build-macos, build-linux, build-android, build-ios, build-webos]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout build repo
@@ -548,6 +597,7 @@ jobs:
           python scripts/generate_download_links.py
           mkdir -p src/dist src/RUST/src-tauri/target/release/bundle/nsis
           cp -f artifacts/streamrix.apk src/dist/ 2>/dev/null || true
+          cp -f artifacts/streamrix.ipk src/dist/ 2>/dev/null || true
           cp -f artifacts/*.nsis.zip* src/RUST/src-tauri/target/release/bundle/nsis/ 2>/dev/null || true
           node src/tools/build-update-manifest.mjs --rollout 100
           cp -f src/dist/update.json artifacts/update.json
@@ -573,3 +623,4 @@ jobs:
             artifacts/StreamRix.AppImage
             artifacts/streamrix.apk
             artifacts/StreamRix.ipa
+            artifacts/streamrix.ipk
