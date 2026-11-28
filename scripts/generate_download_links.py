@@ -20,6 +20,7 @@ FILES = [
     ("windowsPortable", "StreamRix.exe",           "Windows portable app",     "Windows portable"),
     ("android",         "streamrix.apk",           "Android / phone / tablet", "Android"),
     ("tv",              "streamrix.apk",           "Android TV / Fire TV",     "Smart TV"),
+    ("webos",           "streamrix.ipk",           "LG webOS Smart TV",        "webOS TV"),
     ("mac",             "StreamRix.dmg",           "macOS disk image",         "macOS"),
     ("macZip",          "StreamRix-Mac.zip",       "macOS app bundle",         "macOS (ZIP)"),
     ("linux",           "streamrix.deb",           "Debian / Ubuntu package",  "Linux (DEB)"),
